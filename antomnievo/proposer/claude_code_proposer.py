@@ -13,6 +13,7 @@ from antomnievo.proposer.utils.claude_code_utils import (
     ClaudeCodeConfig,
     invoke_claude_code,
 )
+from antomnievo.proposer.utils.trajectory_utils import find_degenerate_ending
 
 logger = logging.getLogger(__name__)
 
@@ -118,4 +119,13 @@ class ClaudeCodeProposer(BaseProposer):
         async with self._sem:
             raw_output = await invoke_claude_code(prompt, cwd, self._config)
         trajectory, stats = parse_stream_json(raw_output)
+        # Under gateway overload the model can return empty assistant messages;
+        # the CLI retries internally and exits 0, so the result event still
+        # reads "success" and nothing lands in trajectory.errors. Detect that by
+        # span shape — same rule the pi backend applies — so a half-finished
+        # session is not rolled out as a candidate.
+        if not trajectory.errors:
+            degenerate = find_degenerate_ending(trajectory)
+            if degenerate:
+                trajectory.errors.append(f"Claude Code trajectory degenerate: {degenerate}")
         return trajectory, stats
