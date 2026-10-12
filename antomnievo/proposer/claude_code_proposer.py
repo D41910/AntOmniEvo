@@ -38,6 +38,17 @@ class ClaudeCodeProposer(BaseProposer):
         re-summarizing into compact per-data_id result files — the propose
         phase then reads these summaries instead of the raw run data, keeping
         its context small and stable regardless of how many runs exist.
+
+    .. warning::
+        This backend is UNFINISHED. Development moved to PiCodingAgentProposer
+        midway; this class works end-to-end in principle (analysis, mutation,
+        and reflection / mara chain are inherited from BaseProposer, which
+        only requires ``invoke_agent``) but never received the pi backend's
+        hardening (see the TODO at ``invoke_agent``): no retry on transient
+        gateway errors (429/5xx), no agent-error classification, degenerate
+        sessions fail the phase instead of retrying in-slot. Note the
+        reflection path in particular has never been exercised with this
+        backend — treat it as unverified here.
     """
 
     def __init__(
@@ -113,9 +124,27 @@ class ClaudeCodeProposer(BaseProposer):
             autocompact_pct=autocompact_pct,
             config_dir=config_dir,
         )
+        logger.warning(
+            "ClaudeCodeProposer is unfinished: development moved to "
+            "PiCodingAgentProposer midway, and this backend never received "
+            "pi's retry/error-classification hardening (see class docstring). "
+            "Prefer PiCodingAgentProposer."
+        )
 
     async def invoke_agent(self, prompt: str, cwd: str) -> tuple[Trajectory, UsageStats]:
         """Invoke Claude Code CLI and return parsed trajectory and stats."""
+        # TODO(claude-backend): unfinished backend — development moved to
+        # PiCodingAgentProposer midway. Port pi's hardening here (or better,
+        # into BaseProposer so both backends share it):
+        #   1. tenacity retry on transient gateway errors (429/5xx), holding
+        #      the semaphore across backoff like _invoke_pi_once does;
+        #   2. classify_agent_error over trajectory.errors so transients join
+        #      the retry path and fatals surface immediately;
+        #   3. raise AgentEmptyResponseError on a degenerate ending instead of
+        #      appending to trajectory.errors, so it retries in-slot.
+        # Remove the __init__ warning once this lands.
+        async with self._sem:
+            raw_output = await invoke_claude_code(prompt, cwd, self._config)
         async with self._sem:
             raw_output = await invoke_claude_code(prompt, cwd, self._config)
         trajectory, stats = parse_stream_json(raw_output)
